@@ -1,3 +1,4 @@
+#need to give --batch-size
 from __future__ import print_function
 import argparse
 import torch.utils.data
@@ -191,7 +192,7 @@ class draw(nn.Module):
 
 input_size = 784
 seq_len = 2
-batch_size = 128
+batch_size = args.batch_size #128
 model = draw(input_size, seq_len, batch_size)
 if args.cuda:
     model.cuda()
