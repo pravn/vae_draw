@@ -18,8 +18,8 @@ import torch
 import torch.utils.data 
 
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-parser.add_argument('--batch-size', type=int, default=1, metavar='N',
-                    help='input batch size for training (default: 64)')
+parser.add_argument('--batch-size', type=int, default=100, metavar='N',
+                    help='input batch size for training (default: 100)')
 parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 2)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -191,7 +191,7 @@ class draw(nn.Module):
             print(seq) '''
 
 input_size = 784
-seq_len = 1
+seq_len = 20
 batch_size = args.batch_size #128
 model = draw(input_size, seq_len, batch_size)
 if args.cuda:
