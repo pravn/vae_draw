@@ -29,8 +29,8 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
 args = parser.parse_args()
-#args.cuda = not args.no_cuda and torch.cuda.is_available()
-args.cuda = args.no_cuda
+args.cuda = not args.no_cuda and torch.cuda.is_available()
+#args.cuda = args.no_cuda
 
 
 torch.manual_seed(args.seed)
@@ -127,9 +127,9 @@ class draw(nn.Module):
         return mu, h_mu, logvar, h_logvar
  
 
-    def decoder_network(self, z, h_dec_prev):
-        h_dec = self.dec_rnn(z, h_dec_prev)
-        c = F.sigmoid(self.write(h_dec))
+    def decoder_network(self, z, h_dec_prev, c):
+        h_dec= self.dec_rnn(z, h_dec_prev)
+        c = c + self.write(h_dec)
         #print("decoder done")
         #print("------------")
 
@@ -154,31 +154,31 @@ class draw(nn.Module):
 
     def forward(self, x_in, T):
         #advance by T timesteps 
-        x = x_in.view(-1, input_size) #flatten
-        x_t_prev = Variable(torch.zeros(self.batch_size, self.hidden_size))
-        h_mu = Variable(torch.zeros(self.batch_size, self.hidden_size))
-        h_logvar = Variable(torch.zeros(self.batch_size, self.hidden_size))
-        mu = Variable(torch.zeros(self.batch_size, self.hidden_size))
-        logvar = Variable(torch.zeros(self.batch_size, self.hidden_size))
-        h_dec = Variable(torch.zeros(self.batch_size, self.hidden_size))
+        x = x_in.view(-1, input_size).cuda() #flatten
+        c = Variable(torch.zeros(self.batch_size, self.input_size)).cuda()
+        h_mu = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
+        h_logvar = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
+        mu = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
+        logvar = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
+        h_dec = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
 
         mu_t = []
         logvar_t = []
             
         for seq in range(T):
-            x_hat = x - F.sigmoid(x_t_prev)
+            x_hat = x - F.sigmoid(c)
             r = self.read(x, x_hat) #cat operation
             mu, h_mu, logvar, h_logvar = self.encoder_RNN(r, h_mu, h_logvar, h_dec, seq)
             z = self.reparametrize_and_sample(mu, logvar)
-            c, h_dec = self.decoder_network(z, h_dec)
+            c, h_dec = self.decoder_network(z, h_dec, c)
             mu_t.append(mu)
             logvar_t.append(logvar)
-            x_t_prev = c
+
 
         #print("FORWARD PASS DONE")
         #print("=================")
 
-        return c, mu_t, logvar_t
+        return F.sigmoid(c), mu_t, logvar_t
 
 
 '''
@@ -191,7 +191,7 @@ class draw(nn.Module):
             print(seq) '''
 
 input_size = 784
-seq_len = 2
+seq_len = 1
 batch_size = args.batch_size #128
 model = draw(input_size, seq_len, batch_size)
 if args.cuda:
@@ -276,7 +276,7 @@ def train(epoch, T):
             plt.savefig('out/snapshot.png', bbox_inches='tight')
             plt.close(fig)
 
-            samples = data.data.numpy()[:16]
+            samples = data.data.cpu().numpy()[:16]
             fig = plt.figure(figsize=(4,4))
             gs  = gridspec.GridSpec(4,4)
             gs.update(wspace=0.05, hspace=0.05)
@@ -301,7 +301,7 @@ def train(epoch, T):
 
 
 
-for epoch in range(1):
+for epoch in range(10):
     train(epoch, seq_len)
     
         
