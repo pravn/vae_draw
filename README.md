@@ -1,4 +1,4 @@
-Implements the DRAW paper:
+Implements the DRAW paper in PyTorch:
 https://arxiv.org/abs/1502.04623
 
 Currently, it only has the recurrent model built in; no attention yet.
