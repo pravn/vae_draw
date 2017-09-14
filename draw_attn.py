@@ -17,6 +17,7 @@ import numpy as np
 import torch
 import torch.utils.data 
 
+
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
 parser.add_argument('--batch-size', type=int, default=100, metavar='N',
                     help='input batch size for training (default: 100)')
@@ -48,6 +49,29 @@ test_loader = torch.utils.data.DataLoader(
     batch_size=args.batch_size, shuffle=True, **kwargs)
 
 
+def compute_filterbank_matrices(g_x, g_y, delta, var, N, A, B, F_x, F_y, batch_size):
+    print('A', A)
+    for batch in range(batch_size):
+        for i in range(N):
+            mu_i = g_x[batch] + (i- N/2 - 0.5)*delta[batch]
+            Z_x = 0
+            for a in range(A):
+                F_x[batch,i,a] = -(a-mu_i)*(a-mu_i)/(2.0*var[batch])
+            F_x[batch, i, :] = torch.exp(F_x[batch, i, :])
+            Z_x = torch.sum(F_x[batch, i, :])
+            F_x[batch, i, :] = F_x[batch, i, :]/Z_x
+                
+        for j in range(N):
+            mu_j = g_y[batch] + (j-N/2 -0.5)*delta[batch]
+            Z_y = 0
+            for b in range(B):
+                F_y[batch, j, b] = -(b-mu_j)*(b-mu_j)/(2.0*var[batch])
+            F_y[batch, j,:] = torch.exp(F_y[batch, j, :])
+            Z_y = torch.sum(F_y[batch, j, :])
+            F_y[batch, j, :] = F_y[batch, j, :]/Z_y
+            
+    return F_x, F_y 
+
 
 class draw(nn.Module):
     def __init__(self, input_size, patch_size, A, B, N,  seq_len, batch_size):
@@ -60,7 +84,7 @@ class draw(nn.Module):
         #self.write()
 
         self.input_size = input_size 
-        self.patch_size = patch-size 
+        self.patch_size = patch_size 
         self.A = A
         self.B = B
         self.N = N
@@ -84,33 +108,55 @@ class draw(nn.Module):
 
         self.dec_rnn = nn.GRUCell(self.z_size, self.dec_hidden_size)
         self.write   = nn.Linear(self.dec_hidden_size, self.input_size)
-        self.get_attn_params = nn.Linear(dec_hidden_size, 5)
-        self.write_patch = nn.Linear(dec_hidden_size, patch_size)
+        self.attn_params = nn.Linear(self.dec_hidden_size, 5)
+        self.write_patch = nn.Linear(self.dec_hidden_size, patch_size)
 
-        #self.enc_input = Variable(torch.zeros(self.seq_len, self.batch_size, 3*self.input_size))
-        
     def read(self, x, x_hat):
         return torch.cat((x, x_hat), -1)
 
     def read_attn(self, x, x_hat, F_x, F_y, gamma):
         #implements F_y x F_x_T [F_y times x times F_x_transpose]
-        F_x_t = torch.t(F_x)
-        tmp_x = torch.mm(x, F_x_t)
-        tmp_x = torch.mm(F_y, tmp_x)
-        
-        tmp_x_hat = torch.mm(x_hat, F_x_t)
-        tmp_x_hat = torch.mm(F_y, tmp_x_hat)
+        #x and x_hat are of size BxA
+        #print(x.size())
+        #print(F_x.size())
+        x = x.view(-1, self.B, self.A)
+        x_hat = x_hat.view(-1, self.B, self.A)
+        # F_x_t = torch.t(F_x)
+
+        tmp_x = Variable(torch.zeros(self.batch_size, self.N, self.N)).cuda()
+        tmp_x_hat = Variable(torch.zeros(self.batch_size, self.N, self.N)).cuda()
+
+        for i in range(batch_size):
+            F_x_t = torch.t(F_x[i])
+            tmp_x[i] = torch.mm(F_y[i], torch.mm(x[i], F_x_t))*gamma[i]
+            tmp_x_hat[i] = torch.mm(F_y[i], torch.mm(x_hat[i], F_x_t))*gamma[i]
 
         #this should have size 2*NxN == 2*patch_size 
-        return torch.cat(tmp_x, tmp_x_hat)
+        return torch.cat((tmp_x.view(-1, self.patch_size), tmp_x_hat.view(-1, self.patch_size)), -1)
 
     def write_attn(self, h_dec, F_x, F_y, gamma):
         #implements F_y_T w F_x 
         # w is output patch of size NxN
-        w = self.write_patch(h_dec)
-        F_y_t = torch.t(F_y)
-        tmp = torch.mm(w, F_x)
-        tmp = 1/self.gamma*torch.mm(F_y_t, tmp)
+
+        #F_x is of size [batch_size x N x A]
+        #F_y is of size [batch_size x N x B]
+
+
+        batch_size = self.batch_size
+        w = self.write_patch(h_dec).view(-1, self.N, self.N)
+
+        print('w.size()', w.size())
+        print('F_x.size()', F_x.size())
+
+        #w: bsz, patch_size
+        #F_x: bsz, N x A
+        tmp = Variable(torch.zeros(batch_size, B, A)).cuda()
+
+
+        for batch in range(batch_size):
+            F_y_t = torch.t(F_y[batch])
+            tmp1 = torch.mm(w[batch], F_x[batch])
+            tmp[batch] = 1.0/gamma[batch]*torch.mm(F_y_t, tmp1)
         #tmp is of size BXA
         return tmp
         
@@ -137,28 +183,46 @@ class draw(nn.Module):
 
         return c, h_dec
 
-    def decoder_network_attn(self, z, h_dec_prev, c):
+    def get_attn_params(self, h_dec):
+        params = self.attn_params(h_dec)
+        g_x = params[:,0]
+        g_y = params[:,1]
+        logvar = params[:,2]
+        logdelta = params[:,3]
+        loggamma = params[:,4]
+
+        print('params.size()', params.size())
+        print('logdelta.size()', logdelta.size())
+
+        return g_x, g_y, logvar, logdelta, loggamma
+        
+        
+
+    def decoder_network_attn(self, z, h_dec_prev, c_t, F_x, F_y):
         A = self.A
         B = self.B
         N = self.N
         
         h_dec = self.dec_rnn(z, h_dec_prev)
+
+        print('h_dec.size()', h_dec.size())
+        print('self.dec_hidden_size()', self.dec_hidden_size)
         #use decoder to get attention parameters 
-        g_x, g_y, logvar, logdelta, loggamma = self.get_attn_params(self.h_dec)
+        g_x, g_y, logvar, logdelta, loggamma = self.get_attn_params(h_dec)
         
-        delta = logdelta.exp_()
-        gamma = loggamma.exp_()
-        var = logvar.exp_()
+        delta = torch.exp(logdelta)
+        gamma = torch.exp(loggamma)
+        var = torch.exp(logvar)
 
         g_x = (A+1)*(g_x+1)/2
         g_y = (B+1)*(g_y+1)/2
         delta = (max(A,B)-1)/(N-1)*delta 
 
-        F_x, F_y = compute_filterbank_matrices(g_x, g_y, var, delta, N)
+        F_x, F_y = compute_filterbank_matrices(g_x, g_y, delta, var, N, A, B,  F_x, F_y, self.batch_size)
 
         #c_t is of shape NxN
-        c_t = c_t + self.write_attn(gamma, F_x, F_y, h_dec)
-        return c_t, h_dec
+        c_t = c_t + self.write_attn(h_dec, F_x, F_y, gamma)
+        return c_t , h_dec, F_x, F_y, gamma
         
     def reparametrize_and_sample(self, mu, logvar):
         std = logvar.mul(0.5).exp_() 
@@ -184,18 +248,28 @@ class draw(nn.Module):
         mu = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
         logvar = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
         h_dec = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
+        
+        #filterbank variables 
+        F_x = Variable(torch.ones(self.batch_size, self.N, self.A)).cuda()
+        F_y = Variable(torch.ones(self.batch_size, self.N, self.B)).cuda()
+        gamma = Variable(torch.ones(self.batch_size)).cuda()
 
         mu_t = []
         logvar_t = []
+
+
+        #print('x.size()', x.size())
             
         for seq in range(T):
             x_hat = x - F.sigmoid(c)
-            r = self.read(x, x_hat) #cat operation
+            r = self.read_attn(x, x_hat, F_x, F_y, gamma)
             mu, h_mu, logvar, h_logvar = self.encoder_RNN(r, h_mu, h_logvar, h_dec, seq)
             z = self.reparametrize_and_sample(mu, logvar)
-            c, h_dec = self.decoder_network(z, h_dec, c)
+            c, h_dec, F_x, F_y, gamma = self.decoder_network_attn(z, h_dec, c, F_x, F_y)
             mu_t.append(mu)
             logvar_t.append(logvar)
+            print('seq done')
+            print('--------')
 
 
         #print("FORWARD PASS DONE")
@@ -203,11 +277,14 @@ class draw(nn.Module):
 
         return F.sigmoid(c), mu_t, logvar_t
 
-
-input_size = 784
-seq_len = 20
-batch_size = args.batch_size #128
-model = draw(input_size, seq_len, batch_size)
+A = 28
+B = 28
+N = 12
+input_size = A * B #=784
+patch_size = N * N #=144
+seq_len = 1
+batch_size = args.batch_size #100
+model = draw(input_size, patch_size, A, B, N,  seq_len, batch_size)
 if args.cuda:
     model.cuda()
 
