@@ -49,28 +49,7 @@ test_loader = torch.utils.data.DataLoader(
     batch_size=args.batch_size, shuffle=True, **kwargs)
 
 
-def compute_filterbank_matrices(g_x, g_y, delta, var, N, A, B, F_x, F_y, batch_size):
-    print('A', A)
-    for batch in range(batch_size):
-        for i in range(N):
-            mu_i = g_x[batch] + (i- N/2 - 0.5)*delta[batch]
-            Z_x = 0
-            for a in range(A):
-                F_x[batch,i,a] = -(a-mu_i)*(a-mu_i)/(2.0*var[batch])
-            F_x[batch, i, :] = torch.exp(F_x[batch, i, :])
-            Z_x = torch.sum(F_x[batch, i, :])
-            F_x[batch, i, :] = F_x[batch, i, :]/Z_x
-                
-        for j in range(N):
-            mu_j = g_y[batch] + (j-N/2 -0.5)*delta[batch]
-            Z_y = 0
-            for b in range(B):
-                F_y[batch, j, b] = -(b-mu_j)*(b-mu_j)/(2.0*var[batch])
-            F_y[batch, j,:] = torch.exp(F_y[batch, j, :])
-            Z_y = torch.sum(F_y[batch, j, :])
-            F_y[batch, j, :] = F_y[batch, j, :]/Z_y
-            
-    return F_x, F_y 
+
 
 
 class draw(nn.Module):
@@ -131,6 +110,9 @@ class draw(nn.Module):
             tmp_x[i] = torch.mm(F_y[i], torch.mm(x[i], F_x_t))*gamma[i]
             tmp_x_hat[i] = torch.mm(F_y[i], torch.mm(x_hat[i], F_x_t))*gamma[i]
 
+        print("Read done")
+        print("=========")
+
         #this should have size 2*NxN == 2*patch_size 
         return torch.cat((tmp_x.view(-1, self.patch_size), tmp_x_hat.view(-1, self.patch_size)), -1)
 
@@ -169,8 +151,8 @@ class draw(nn.Module):
         h_logvar = self.enc_logvar(enc_input, h_logvar_prev)
         logvar = F.relu(self.logvar_fc(h_logvar))
 
-        #print("encoder done")
-        #print("------------")
+        print("encoder done")
+        print("------------")
 
         return mu, h_mu, logvar, h_logvar
  
@@ -218,11 +200,116 @@ class draw(nn.Module):
         g_y = (B+1)*(g_y+1)/2
         delta = (max(A,B)-1)/(N-1)*delta 
 
-        F_x, F_y = compute_filterbank_matrices(g_x, g_y, delta, var, N, A, B,  F_x, F_y, self.batch_size)
+        F_x, F_y = self.compute_filterbank_matrices(g_x, g_y, delta, var, F_x, F_y, N, A, B, self.batch_size)
+        #        F_x[:,:,:] = 1
+
+
+        print("Computed FB matrices")
 
         #c_t is of shape NxN
         c_t = c_t + self.write_attn(h_dec, F_x, F_y, gamma)
+        #c_t = c_t + self.write(h_dec)
+
+        print("decoder_network_attn done")
+        print("=========================")
         return c_t , h_dec, F_x, F_y, gamma
+
+    def compute_filterbank_matrices(self, g_x, g_y, delta, var, F_x, F_y, N, A, B, batch_size):
+        #F_x = Variable(torch.ones(self.batch_size, self.N, self.A)).cuda()
+        #F_y = Variable(torch.ones(self.batch_size, self.N, self.B)).cuda()
+
+
+        #        for batch in range(batch_size):
+        #
+        #            for i in range(N):
+        #                mu_i = g_x[batch] + (i-N/2 - 0.5)*delta[batch]
+        #
+        #                for a in range(A):
+        #                    F_x[batch, i, a] = -(a-mu_i)*(a-mu_i)/(2.0*var[batch])
+        #
+        #                F_x[batch, i] = torch.exp(F_x[batch, i])
+        #                
+        #                Z_x = 0
+        #                for a in range(A):
+        #                    Z_x = 1 + F_x[batch, i, a]
+        #
+        #                F_x[batch, i] = F_x[batch, i]/Z_x
+
+
+        i = torch.arange(0, N).cuda()
+        
+        gx  = g_x.expand(N, A, batch_size)
+        gx  = gx.permute(2,0,1)
+
+        i = i.expand(batch_size, A, N)
+        i = Variable(i.permute(0, 2, 1))
+
+        d = delta.expand(N, A, batch_size)
+        d = d.permute(2,0,1)
+
+        t2 = i*d
+        
+        mu_i = gx + i*d - (N/2 + 0.5) * d
+
+        a = torch.arange(0,A).cuda()
+        a = Variable(a.expand(batch_size, N, A))
+
+        v = var.expand(N, A, batch_size)
+        v = v.permute(2, 0, 1)
+
+        print('gx.size()', gx.size())
+        print('t2.size()', t2.size())
+        print('a.size()', a.size())
+        print('v.size()', v.size())
+
+
+        tmp = torch.exp(-(a-mu_i)*(a-mu_i)/(2.0*v))
+
+        s = tmp.view(batch_size*N, -1).sum(2)
+
+        
+
+        
+
+
+        #t3 = torch.t(delta.expand(N, batch_size))
+        #print('t3.size()', t3.size())
+        #
+        #mu_i = gx +t2*t3 - (N/2+0.5) * t3 #size batch_size x N
+        #
+        #a = Variable(torch.arange(0, A)).cuda()
+    
+        
+        
+        
+        
+        
+        return F_x, F_y
+
+        print('A', A)
+        for batch in range(batch_size):
+            for i in range(N):
+                mu_i = g_x[batch] + (i- N/2 - 0.5)*delta[batch]
+                Z_x = 0
+                for a in range(A):
+                    F_x[batch,i,a] = -(a-mu_i)*(a-mu_i)/(2.0*var[batch])
+                
+                F_x[batch, i, :] = torch.exp(F_x[batch, i, :])
+                Z_x = torch.sum(F_x[batch, i, :])
+                F_x[batch, i, :] = F_x[batch, i, :]/Z_x
+                
+                for j in range(N):
+                    mu_j = g_y[batch] + (j-N/2 -0.5)*delta[batch]
+                    Z_y = 0
+                    for b in range(B):
+                        F_y[batch, j, b] = -(b-mu_j)*(b-mu_j)/(2.0*var[batch]) 
+    
+                    F_y[batch, j,:] = torch.exp(F_y[batch, j, :])
+
+                    Z_y = torch.sum(F_y[batch, j, :])
+                    F_y[batch, j, :] = F_y[batch, j, :]/Z_y
+                
+        return F_x, F_y 
         
     def reparametrize_and_sample(self, mu, logvar):
         std = logvar.mul(0.5).exp_() 
@@ -235,7 +322,7 @@ class draw(nn.Module):
         eps = Variable(eps)
         
         #mu + sigma * epsilon
-        #print("reparametrize and sample done")
+        print("reparametrize and sample done")
         #print("-----------------------------")
         return eps.mul(std).add_(mu)
 
@@ -250,15 +337,16 @@ class draw(nn.Module):
         h_dec = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
         
         #filterbank variables 
-        F_x = Variable(torch.ones(self.batch_size, self.N, self.A)).cuda()
-        F_y = Variable(torch.ones(self.batch_size, self.N, self.B)).cuda()
-        gamma = Variable(torch.ones(self.batch_size)).cuda()
+        F_x = Variable(torch.ones(self.batch_size, self.N, self.A), requires_grad=False).cuda()
+        F_y = Variable(torch.ones(self.batch_size, self.N, self.B), requires_grad=False).cuda()
+        gamma = Variable(torch.ones(self.batch_size), requires_grad=False).cuda()
 
         mu_t = []
         logvar_t = []
 
 
         #print('x.size()', x.size())
+        print("Starting forward")
             
         for seq in range(T):
             x_hat = x - F.sigmoid(c)
@@ -321,6 +409,8 @@ optimizer = optim.Adam(model.parameters(), lr=1e-3)
 def train(epoch, T):
     model.train()
     train_loss = 0
+
+    print(model)
     for batch_idx, (data, _) in enumerate(train_loader):
         h_data = Variable(data)
         #print('data.size()', data.size())
@@ -332,6 +422,9 @@ def train(epoch, T):
 
         recon_batch, mu_t, logvar_t = model(data, T)
         loss = loss_function(recon_batch, data, mu_t, logvar_t, T)
+        
+        print("Doing Backprop")
+        print("==============")
         loss.backward()
 
         train_loss += loss.data[0]
