@@ -218,99 +218,57 @@ class draw(nn.Module):
         #F_x = Variable(torch.ones(self.batch_size, self.N, self.A)).cuda()
         #F_y = Variable(torch.ones(self.batch_size, self.N, self.B)).cuda()
 
-
-        #        for batch in range(batch_size):
-        #
-        #            for i in range(N):
-        #                mu_i = g_x[batch] + (i-N/2 - 0.5)*delta[batch]
-        #
-        #                for a in range(A):
-        #                    F_x[batch, i, a] = -(a-mu_i)*(a-mu_i)/(2.0*var[batch])
-        #
-        #                F_x[batch, i] = torch.exp(F_x[batch, i])
-        #                
-        #                Z_x = 0
-        #                for a in range(A):
-        #                    Z_x = 1 + F_x[batch, i, a]
-        #
-        #                F_x[batch, i] = F_x[batch, i]/Z_x
-
-
         i = torch.arange(0, N).cuda()
         
         gx  = g_x.expand(N, A, batch_size)
         gx  = gx.permute(2,0,1)
 
-        i = i.expand(batch_size, A, N)
-        i = Variable(i.permute(0, 2, 1))
+        i = Variable(i.expand(batch_size, A, N).permute(0,2,1))
+        #i = Variable(i.permute(0, 2, 1))
 
-        d = delta.expand(N, A, batch_size)
-        d = d.permute(2,0,1)
+        dx = delta.expand(N, A, batch_size).permute(2, 0, 1)
 
-        t2 = i*d
-        
-        mu_i = gx + i*d - (N/2 + 0.5) * d
+        mu_i = gx + i*dx - (N/2 + 0.5) * dx
 
         a = torch.arange(0,A).cuda()
         a = Variable(a.expand(batch_size, N, A))
 
-        v = var.expand(N, A, batch_size)
-        v = v.permute(2, 0, 1)
+        vx = var.expand(N, A, batch_size)
+        vx = vx.permute(2, 0, 1)
 
-        print('gx.size()', gx.size())
-        print('t2.size()', t2.size())
-        print('a.size()', a.size())
-        print('v.size()', v.size())
+        F_x = torch.exp(-(a-mu_i)*(a-mu_i)/(2.0*vx))
 
+        n_x = torch.sum(F_x, 2).expand(A, batch_size, N)
+        n_x = n_x.permute(1, 2, 0)
 
-        tmp = torch.exp(-(a-mu_i)*(a-mu_i)/(2.0*v))
+        F_x = F_x/n_x
 
-        s = tmp.view(batch_size*N, -1).sum(2)
+        #now compute F_y
 
-        
+        gy = g_y.expand(N, A, batch_size).permute(2, 0, 1)
+        dy = delta.expand(N, B, batch_size).permute(2, 0, 1)
 
-        
+        j = torch.arange(0, N).cuda()
+        j = Variable(j.expand(batch_size, B, N)).permute(0, 2, 1)
 
+        mu_j = gy + j*dy - (N/2 + 0.5) * dy
 
-        #t3 = torch.t(delta.expand(N, batch_size))
-        #print('t3.size()', t3.size())
-        #
-        #mu_i = gx +t2*t3 - (N/2+0.5) * t3 #size batch_size x N
-        #
-        #a = Variable(torch.arange(0, A)).cuda()
-    
-        
-        
-        
+        b = torch.arange(0, B).cuda()
+        b = Variable(b.expand(batch_size, N, A))
+
+        vy = var.expand(N, B, batch_size)
+        vy = vy.permute(2, 0, 1)
+
+        F_y = torch.exp(-(b-mu_j)*(b-mu_j)/(2.0*vy))
+
+        n_y = torch.sum(F_x, 2).expand(A, batch_size, N)
+        n_y = n_y.permute(1, 2, 0)
+
+        F_y = F_y/n_y
         
         
         return F_x, F_y
 
-        print('A', A)
-        for batch in range(batch_size):
-            for i in range(N):
-                mu_i = g_x[batch] + (i- N/2 - 0.5)*delta[batch]
-                Z_x = 0
-                for a in range(A):
-                    F_x[batch,i,a] = -(a-mu_i)*(a-mu_i)/(2.0*var[batch])
-                
-                F_x[batch, i, :] = torch.exp(F_x[batch, i, :])
-                Z_x = torch.sum(F_x[batch, i, :])
-                F_x[batch, i, :] = F_x[batch, i, :]/Z_x
-                
-                for j in range(N):
-                    mu_j = g_y[batch] + (j-N/2 -0.5)*delta[batch]
-                    Z_y = 0
-                    for b in range(B):
-                        F_y[batch, j, b] = -(b-mu_j)*(b-mu_j)/(2.0*var[batch]) 
-    
-                    F_y[batch, j,:] = torch.exp(F_y[batch, j, :])
-
-                    Z_y = torch.sum(F_y[batch, j, :])
-                    F_y[batch, j, :] = F_y[batch, j, :]/Z_y
-                
-        return F_x, F_y 
-        
     def reparametrize_and_sample(self, mu, logvar):
         std = logvar.mul(0.5).exp_() 
 
@@ -370,7 +328,7 @@ B = 28
 N = 12
 input_size = A * B #=784
 patch_size = N * N #=144
-seq_len = 1
+seq_len = 3
 batch_size = args.batch_size #100
 model = draw(input_size, patch_size, A, B, N,  seq_len, batch_size)
 if args.cuda:
