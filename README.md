@@ -1,8 +1,15 @@
 Implements the DRAW paper in PyTorch:
 https://arxiv.org/abs/1502.04623
 
-Currently, it only has the recurrent model built in; no attention yet.
-Set batch-size to 100.
-Modify seq_len.
+draw.py: implementation without attension
+draw_attn.py: implementation with attention
 
-We can see that the samples produced improve with seq_len. Work in progress ...
+Set batch_size to 100
+Modify seq_len to change the number of recurrent iterations.
+
+Samples improve with seq_len. 
+
+The attention implementation is very fresh. For one thing, there are blow up issues possibly arising from the recurrences - the gamma parameter that divides in the writer gives nan for seq_len>3. Changing the decoder RNN to LSTM improves things somewhat.
+
+
+Work in progress.
