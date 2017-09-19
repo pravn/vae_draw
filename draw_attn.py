@@ -95,6 +95,7 @@ class draw(nn.Module):
 
     def read_attn(self, x, x_hat, F_x, F_y, gamma):
         #implements F_y x F_x_T [F_y times x times F_x_transpose]
+        #to get patch vector of size N X N
         #x and x_hat are of size BxA
         #print(x.size())
         #print(F_x.size())
@@ -105,10 +106,34 @@ class draw(nn.Module):
         tmp_x = Variable(torch.zeros(self.batch_size, self.N, self.N)).cuda()
         tmp_x_hat = Variable(torch.zeros(self.batch_size, self.N, self.N)).cuda()
 
-        for i in range(batch_size):
-            F_x_t = torch.t(F_x[i])
-            tmp_x[i] = torch.mm(F_y[i], torch.mm(x[i], F_x_t))*gamma[i]
-            tmp_x_hat[i] = torch.mm(F_y[i], torch.mm(x_hat[i], F_x_t))*gamma[i]
+        batch_size = self.batch_size
+        N = self.N
+        B = self.B
+        A = self.A 
+
+        #another batch opertion
+        # v = gamma . F_y . x . F_x_t
+        # F_x: bsz X N X A
+        # F_x_t: bsz X A X N 
+        # F_y: bsz X B X N
+        # gamma: bsz
+
+        #x: B X A 
+        #x_hat: B X A
+        
+
+        #for i in range(batch_size):
+        #    F_x_t = torch.t(F_x[i])
+        #    tmp_x[i] = torch.mm(F_y[i], torch.mm(x[i], F_x_t))*gamma[i]
+        #    tmp_x_hat[i] = torch.mm(F_y[i], torch.mm(x_hat[i], F_x_t))*gamma[i]
+
+
+
+        F_x_t = F_x.permute(0, 2, 1)
+        tmp_x = gamma.expand(N, N, batch_size).permute(0, 1, 2) * F_y.bmm(x.bmm(F_x_t))
+        tmp_x_hat = gamma.expand(N, N, batch_size).permute(0, 1, 2) * F_y.bmm(x_hat.bmm(F_x_t))
+        
+        
 
         print("Read done")
         print("=========")
@@ -130,16 +155,35 @@ class draw(nn.Module):
         print('w.size()', w.size())
         print('F_x.size()', F_x.size())
 
-        #w: bsz, patch_size
+        #w: bsz, N x N
         #F_x: bsz, N x A
-        tmp = Variable(torch.zeros(batch_size, B, A)).cuda()
+        #tmp = Variable(torch.zeros(batch_size, B, A)).cuda()
 
-
-        for batch in range(batch_size):
-            F_y_t = torch.t(F_y[batch])
-            tmp1 = torch.mm(w[batch], F_x[batch])
-            tmp[batch] = 1.0/gamma[batch]*torch.mm(F_y_t, tmp1)
+        #for batch in range(batch_size):
+        #    F_y_t = torch.t(F_y[batch])
+        #    tmp1 = torch.mm(w[batch], F_x[batch])
+        #    tmp[batch] = 1.0/gamma[batch]*torch.mm(F_y_t, tmp1)
         #tmp is of size BXA
+        
+        #F_y=> bsz X N X B
+        #F_y_t => bsz X B x N
+        #w => bsz X N X N
+        #F_x => bsz X N X A
+        # gamma => bsz 
+
+        # F_y_t . w . F_x => bsz X B X A
+        #1/gamma * F_Y_t . w . F_x => bsz X B X A
+
+        F_y_t = F_y.permute(0,2,1) 
+        tmp = F_y_t.bmm(w.bmm(F_x))
+
+        print('tmp.size()', tmp.size())
+        g = gamma.expand(B,A,batch_size).permute(2,0,1)
+        print('gamma.size()', gamma.size())
+        print('g.size()', g.size())
+        tmp = 1.0/g * tmp
+        
+
         return tmp
         
 
@@ -328,7 +372,7 @@ B = 28
 N = 12
 input_size = A * B #=784
 patch_size = N * N #=144
-seq_len = 3
+seq_len = 2
 batch_size = args.batch_size #100
 model = draw(input_size, patch_size, A, B, N,  seq_len, batch_size)
 if args.cuda:
