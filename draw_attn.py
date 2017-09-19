@@ -85,7 +85,7 @@ class draw(nn.Module):
         #do z = mu+\epsilon sigma in reparametrize
         #send to decoder hidden RNN 
 
-        self.dec_rnn = nn.GRUCell(self.z_size, self.dec_hidden_size)
+        self.dec_rnn = nn.LSTMCell(self.z_size, self.dec_hidden_size)
         self.write   = nn.Linear(self.dec_hidden_size, self.input_size)
         self.attn_params = nn.Linear(self.dec_hidden_size, 5)
         self.write_patch = nn.Linear(self.dec_hidden_size, patch_size)
@@ -178,9 +178,14 @@ class draw(nn.Module):
         tmp = F_y_t.bmm(w.bmm(F_x))
 
         print('tmp.size()', tmp.size())
-        g = gamma.expand(B,A,batch_size).permute(2,0,1)
+        epsilon = 0.01*Variable(torch.ones(batch_size).cuda())
+
+        g = (gamma+epsilon).expand(B,A,batch_size).permute(2,0,1)
         print('gamma.size()', gamma.size())
         print('g.size()', g.size())
+        print('norm_g ', torch.norm(g))
+
+
         tmp = 1.0/g * tmp
         
 
@@ -193,7 +198,7 @@ class draw(nn.Module):
         h_mu = self.enc_mu(enc_input, h_mu_prev)
         mu = F.relu(self.mu_fc(h_mu))
         h_logvar = self.enc_logvar(enc_input, h_logvar_prev)
-        logvar = F.relu(self.logvar_fc(h_logvar))
+        logvar = F.tanh(self.logvar_fc(h_logvar))
 
         print("encoder done")
         print("------------")
@@ -224,12 +229,12 @@ class draw(nn.Module):
         
         
 
-    def decoder_network_attn(self, z, h_dec_prev, c_t, F_x, F_y):
+    def decoder_network_attn(self, z, h_dec_prev, c_dec_prev, c_t, F_x, F_y):
         A = self.A
         B = self.B
         N = self.N
         
-        h_dec = self.dec_rnn(z, h_dec_prev)
+        h_dec, c_dec = self.dec_rnn(z, (h_dec_prev, c_dec_prev))
 
         print('h_dec.size()', h_dec.size())
         print('self.dec_hidden_size()', self.dec_hidden_size)
@@ -254,9 +259,10 @@ class draw(nn.Module):
         c_t = c_t + self.write_attn(h_dec, F_x, F_y, gamma)
         #c_t = c_t + self.write(h_dec)
 
+
         print("decoder_network_attn done")
         print("=========================")
-        return c_t , h_dec, F_x, F_y, gamma
+        return c_t , h_dec, c_dec, F_x, F_y, gamma
 
     def compute_filterbank_matrices(self, g_x, g_y, delta, var, F_x, F_y, N, A, B, batch_size):
         #F_x = Variable(torch.ones(self.batch_size, self.N, self.A)).cuda()
@@ -331,12 +337,13 @@ class draw(nn.Module):
     def forward(self, x_in, T):
         #advance by T timesteps 
         x = x_in.view(-1, input_size).cuda() #flatten
-        c = Variable(torch.zeros(self.batch_size, self.input_size)).cuda()
+        c = Variable(torch.randn(self.batch_size, self.input_size)).cuda()
         h_mu = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
         h_logvar = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
         mu = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
         logvar = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
         h_dec = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
+        c_dec = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
         
         #filterbank variables 
         F_x = Variable(torch.ones(self.batch_size, self.N, self.A), requires_grad=False).cuda()
@@ -349,21 +356,31 @@ class draw(nn.Module):
 
         #print('x.size()', x.size())
         print("Starting forward")
+
+        alpha = 0.01
             
         for seq in range(T):
             x_hat = x - F.sigmoid(c)
             r = self.read_attn(x, x_hat, F_x, F_y, gamma)
             mu, h_mu, logvar, h_logvar = self.encoder_RNN(r, h_mu, h_logvar, h_dec, seq)
             z = self.reparametrize_and_sample(mu, logvar)
-            c, h_dec, F_x, F_y, gamma = self.decoder_network_attn(z, h_dec, c, F_x, F_y)
+            c, h_dec, c_dec, F_x, F_y, gamma = self.decoder_network_attn(z, h_dec, c_dec, c, F_x, F_y)
+
             mu_t.append(mu)
             logvar_t.append(logvar)
+            print('seqnorm', torch.norm(c))
             print('seq done')
             print('--------')
 
 
         #print("FORWARD PASS DONE")
         #print("=================")
+
+
+        epsilon = 0.001
+        u = Variable(torch.randn(self.batch_size, self.input_size)).cuda()
+        u = u * epsilon
+
 
         return F.sigmoid(c), mu_t, logvar_t
 
@@ -372,13 +389,14 @@ B = 28
 N = 12
 input_size = A * B #=784
 patch_size = N * N #=144
-seq_len = 2
+seq_len = 10
 batch_size = args.batch_size #100
 model = draw(input_size, patch_size, A, B, N,  seq_len, batch_size)
 if args.cuda:
     model.cuda()
 
 reconstruction_function = nn.BCELoss()
+#reconstruction_function = nn.MSELoss()
 reconstruction_function.size_average = False
  
 def loss_function(recon_x, x, mu, logvar, T):
