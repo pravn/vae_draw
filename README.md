@@ -1,7 +1,7 @@
 Implements the DRAW paper in PyTorch:
 https://arxiv.org/abs/1502.04623
 
-draw.py: implementation without attension
+draw.py: implementation without attension <br>
 draw_attn.py: implementation with attention
 
 Set batch_size to 100. Modify seq_len to change the number of recurrent iterations.
