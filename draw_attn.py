@@ -178,7 +178,7 @@ class draw(nn.Module):
         tmp = F_y_t.bmm(w.bmm(F_x))
 
         print('tmp.size()', tmp.size())
-        epsilon = 0.01*Variable(torch.ones(batch_size).cuda())
+        epsilon = 0.0001*Variable(torch.ones(batch_size).cuda())
 
         g = (gamma+epsilon).expand(B,A,batch_size).permute(2,0,1)
         print('gamma.size()', gamma.size())
@@ -337,7 +337,8 @@ class draw(nn.Module):
     def forward(self, x_in, T):
         #advance by T timesteps 
         x = x_in.view(-1, input_size).cuda() #flatten
-        c = Variable(torch.randn(self.batch_size, self.input_size)).cuda()
+        #        c = Variable(torch.randn(self.batch_size, self.input_size)).cuda()
+        c = Variable(torch.zeros(self.batch_size, self.input_size)).cuda()
         h_mu = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
         h_logvar = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
         mu = Variable(torch.zeros(self.batch_size, self.hidden_size)).cuda()
@@ -376,12 +377,6 @@ class draw(nn.Module):
         #print("FORWARD PASS DONE")
         #print("=================")
 
-
-        epsilon = 0.001
-        u = Variable(torch.randn(self.batch_size, self.input_size)).cuda()
-        u = u * epsilon
-
-
         return F.sigmoid(c), mu_t, logvar_t
 
 A = 28
@@ -389,7 +384,7 @@ B = 28
 N = 12
 input_size = A * B #=784
 patch_size = N * N #=144
-seq_len = 10
+seq_len = 20
 batch_size = args.batch_size #100
 model = draw(input_size, patch_size, A, B, N,  seq_len, batch_size)
 if args.cuda:
