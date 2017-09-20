@@ -4,8 +4,7 @@ https://arxiv.org/abs/1502.04623
 draw.py: implementation without attension
 draw_attn.py: implementation with attention
 
-Set batch_size to 100
-Modify seq_len to change the number of recurrent iterations.
+Set batch_size to 100. Modify seq_len to change the number of recurrent iterations.
 
 Samples improve with seq_len. 
 
