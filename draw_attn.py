@@ -97,11 +97,9 @@ class draw(nn.Module):
         #implements F_y x F_x_T [F_y times x times F_x_transpose]
         #to get patch vector of size N X N
         #x and x_hat are of size BxA
-        #print(x.size())
-        #print(F_x.size())
+
         x = x.view(-1, self.B, self.A)
         x_hat = x_hat.view(-1, self.B, self.A)
-        # F_x_t = torch.t(F_x)
 
         tmp_x = Variable(torch.zeros(self.batch_size, self.N, self.N)).cuda()
         tmp_x_hat = Variable(torch.zeros(self.batch_size, self.N, self.N)).cuda()
@@ -127,8 +125,6 @@ class draw(nn.Module):
         #    tmp_x[i] = torch.mm(F_y[i], torch.mm(x[i], F_x_t))*gamma[i]
         #    tmp_x_hat[i] = torch.mm(F_y[i], torch.mm(x_hat[i], F_x_t))*gamma[i]
 
-
-
         F_x_t = F_x.permute(0, 2, 1)
         tmp_x = gamma.expand(N, N, batch_size).permute(0, 1, 2) * F_y.bmm(x.bmm(F_x_t))
         tmp_x_hat = gamma.expand(N, N, batch_size).permute(0, 1, 2) * F_y.bmm(x_hat.bmm(F_x_t))
@@ -152,9 +148,6 @@ class draw(nn.Module):
         batch_size = self.batch_size
         w = self.write_patch(h_dec).view(-1, self.N, self.N)
 
-        print('w.size()', w.size())
-        print('F_x.size()', F_x.size())
-
         #w: bsz, N x N
         #F_x: bsz, N x A
         #tmp = Variable(torch.zeros(batch_size, B, A)).cuda()
@@ -177,17 +170,10 @@ class draw(nn.Module):
         F_y_t = F_y.permute(0,2,1) 
         tmp = F_y_t.bmm(w.bmm(F_x))
 
-        print('tmp.size()', tmp.size())
         epsilon = 0.0001*Variable(torch.ones(batch_size).cuda())
 
         g = (gamma+epsilon).expand(B,A,batch_size).permute(2,0,1)
-        print('gamma.size()', gamma.size())
-        print('g.size()', g.size())
-        print('norm_g ', torch.norm(g))
-
-
         tmp = 1.0/g * tmp
-        
 
         return tmp
         
@@ -222,9 +208,6 @@ class draw(nn.Module):
         logdelta = params[:,3]
         loggamma = params[:,4]
 
-        print('params.size()', params.size())
-        print('logdelta.size()', logdelta.size())
-
         return g_x, g_y, logvar, logdelta, loggamma
         
         
@@ -235,9 +218,6 @@ class draw(nn.Module):
         N = self.N
         
         h_dec, c_dec = self.dec_rnn(z, (h_dec_prev, c_dec_prev))
-
-        print('h_dec.size()', h_dec.size())
-        print('self.dec_hidden_size()', self.dec_hidden_size)
         #use decoder to get attention parameters 
         g_x, g_y, logvar, logdelta, loggamma = self.get_attn_params(h_dec)
         
@@ -354,12 +334,8 @@ class draw(nn.Module):
         mu_t = []
         logvar_t = []
 
-
-        #print('x.size()', x.size())
         print("Starting forward")
 
-        alpha = 0.01
-            
         for seq in range(T):
             x_hat = x - F.sigmoid(c)
             r = self.read_attn(x, x_hat, F_x, F_y, gamma)
