@@ -245,16 +245,13 @@ class draw(nn.Module):
         return c_t , h_dec, c_dec, F_x, F_y, gamma
 
     def compute_filterbank_matrices(self, g_x, g_y, delta, var, F_x, F_y, N, A, B, batch_size):
-        #F_x = Variable(torch.ones(self.batch_size, self.N, self.A)).cuda()
-        #F_y = Variable(torch.ones(self.batch_size, self.N, self.B)).cuda()
 
         i = torch.arange(0, N).cuda()
         
-        gx  = g_x.expand(N, A, batch_size)
-        gx  = gx.permute(2,0,1)
+        gx  = g_x.expand(N, A, batch_size).permute(2,0,1)
+        #gx  = gx.permute(2,0,1)
 
         i = Variable(i.expand(batch_size, A, N).permute(0,2,1))
-        #i = Variable(i.permute(0, 2, 1))
 
         dx = delta.expand(N, A, batch_size).permute(2, 0, 1)
 
@@ -263,8 +260,7 @@ class draw(nn.Module):
         a = torch.arange(0,A).cuda()
         a = Variable(a.expand(batch_size, N, A))
 
-        vx = var.expand(N, A, batch_size)
-        vx = vx.permute(2, 0, 1)
+        vx = var.expand(N, A, batch_size).permute(2,0,1)
 
         F_x = torch.exp(-(a-mu_i)*(a-mu_i)/(2.0*vx))
 
@@ -286,8 +282,7 @@ class draw(nn.Module):
         b = torch.arange(0, B).cuda()
         b = Variable(b.expand(batch_size, N, A))
 
-        vy = var.expand(N, B, batch_size)
-        vy = vy.permute(2, 0, 1)
+        vy = var.expand(N, B, batch_size).permute(2,0,1)
 
         F_y = torch.exp(-(b-mu_j)*(b-mu_j)/(2.0*vy))
 
